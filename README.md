@@ -123,3 +123,4 @@ Couples who Crossword: Fahran Simon Edward
 Cavemen: Jesse Scott 
 Roll Call: Simon Edward Fahran Mira John
 ```
+For change requests, bugs, or troubleshooting, feel free to submit a pull request or contact Fahran Bajaj at fahran.bajaj@gmail.com.
