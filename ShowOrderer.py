@@ -330,7 +330,7 @@ class ShowOrderer:
         #Place specific sketches at start of blocks
         if not(blockStartingSketches is None):
             for blockStartingSketch in blockStartingSketches:
-                contraints = [Int(blockStartingSketch.name) == 1]
+                constraints = [Int(blockStartingSketch.name) == 1]
                 for blockVar in blockVars:
                     constraints.append(Int(blockStartingSketch.name) == blockVar + 1)
                 s.add(Or(constraints))
