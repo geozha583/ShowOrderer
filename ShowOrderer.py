@@ -71,7 +71,7 @@ class HashBag:
 
     def keys(self):
         return self.map.keys()
-    
+
 class ShowOrderer:
     def __init__(self, sketches):
         if not (isinstance(sketches, list)):
@@ -85,9 +85,10 @@ class ShowOrderer:
                 raise ValueError("Every sketch name must be unique")
             seen.add(sketch.name)
 
-        self.sketches = np.random.permutation(sketches) #shuffle to get new starting point on different runs
+        self.sketches = numpy.random.permutation(sketches) #shuffle to get new starting point on different runs
         self.order = None
 
+    #helper to make sure blocks are evenly sized
     def _blockSizing(self, blocks, vignettes_and_diddies, n_total):
         if not (isinstance(n_total, int)):
             raise TypeError("Last argument must be an integer representing number of sketches (each vignette counted as separate sketch) plus desired number of stage blocks minus 1")
@@ -139,33 +140,41 @@ class ShowOrderer:
     def _tripleChange(self, x, y, z):
         if not (isinstance(x, z3.z3.ArithRef) and isinstance(y, z3.z3.ArithRef) and isinstance(z, z3.z3.ArithRef) 
                 and x.is_int() and y.is_int() and z.is_int()):
-            raise TypeError("Both inputs must be z3 integer variables")
+            raise TypeError("All inputs must be z3 integer variables")
 
         return Or(And(self._adjacent(x, y), self._adjacent(y, z)), And(self._adjacent(y, x), self._adjacent(x, z)), And(self._adjacent(y, z), self._adjacent(z, x)))
 
-    def orderShow(self, numBlocks, maxChangesPerActor, desiredFirstSketches, desiredLastSketches, 
-        nonAdjacentSketches, blockStartingSketches, timeout):
+    def orderShow(self, numBlocks, maxChangesPerActor, desiredFirstSketches, desiredLastSketches, nonAdjacentSketches, 
+                  blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, timeout):
+        #most input checking is done by driver function intended to call this one, but we'll take care of this real quick:
         if numBlocks > len(self.sketches):
             raise ValueError("Too many blocks, not enough sketches!")
-        #most input checking is done by driver function intended to call this one
 
+        print("Encoding constraints...")
+        s = Optimize() 
+        s.set("timeout", timeout)
+        #Ok, a couple notes on this "s" object:
+        #This is an optimizer from the z3 library
+        #We'll add a bunch of hard and soft constraints, and it will look for the best show order based on those constraints
+        #This happens by adding an int variable corresponding to each sketch. It will assign each variable an integer based on constraints
+            #we give it. Those integers correspond to a sketch's order in the show
+        #(Makes sure to satisfy all of the hards and as many softs as possible, based on weighting of soft constraints)
+        #"Timeout" parameter makes sure it stops after certain time with best order it has found so far
+        #Otherwise it will search for a really long time looking for the best possible order
+        #More info: https://ericpony.github.io/z3py-tutorial/
+        
+        #This section loops through all sketches and does a few things:
         #Create z3 integer variables for each sketch (or each vignette within a set)
         #Create map from an actor to all of their sketches so we can manage stuff like quick changes
-        #Create map from z3 variables to sketch names. This will be returned along with model created by optimizer so that print function
-            #can properly interpret model
         #Keep track of vignettes and diddies, big and small sketches for later requirements
 
         sketchVars = []
         blockVars = []
         actorsToSketches = HashBag()
-        varsToNames = {}
         vignetteVars = []
         diddyVars = []
         largeSketches = []
         smallSketches = []
-
-        s = Optimize()
-        s.set("timeout", timeout)
         
         for sketch in self.sketches:
             if isinstance(sketch, Vignettes):
@@ -174,7 +183,6 @@ class ShowOrderer:
                     var = Int(name)
                     for actor in vignette_actors:
                         actorsToSketches.add(actor, var)
-                    varsToNames[var] = name
                     sketchVars.append(var)
                     vignetteVars.append(var)
                     if i > 0:
@@ -189,7 +197,6 @@ class ShowOrderer:
                 var = Int(sketch.name)
                 for actor in sketch.actors:
                     actorsToSketches.add(actor, var)
-                varsToNames[var] = sketch.name
                 sketchVars.append(var)
                 if isinstance(sketch, Diddy):
                     diddyVars.append(var)
@@ -202,7 +209,6 @@ class ShowOrderer:
 
         for i in range(1, numBlocks):
             var = Int("Block" + str(i))
-            varsToNames[var] = "Block " + str(i)
             blockVars.append(var)
         
         #every variable must be assigned to a unique and valid position
@@ -217,9 +223,10 @@ class ShowOrderer:
                 var2 = all_vars[j]
                 s.add(var1 != var2)
 
+        #make sure blocks are evenly sized
         vignettesAndDiddies = vignetteVars.copy()
         vignettesAndDiddies.extend(diddyVars)
-        s.add(self._blockSizing(blockVars, vignettesAndDiddies, n_total)) #make sure blocks are evenly sized
+        s.add(self._blockSizing(blockVars, vignettesAndDiddies, n_total)) 
 
         #no triple changes, minimize quick changes, make sure we don't exceed maximum quick changes
         for actor in actorsToSketches.keys():
@@ -232,8 +239,6 @@ class ShowOrderer:
                     for k in range(j + 1, len(sketchList)):
                         s.add(Not(self._tripleChange(sketchList[i], sketchList[j], sketchList[k])))
             s.add(Sum(adjacencyVars) <= maxChangesPerActor)
-
-        
                                                    
         #at most one vignette per block
         bookendedBlockNums = blockVars.copy()
@@ -246,6 +251,7 @@ class ShowOrderer:
             for vignette in vignetteVars:
                 vignettesInBlock.append(And(vignette > start_pos, vignette < end_pos))
             for i in range(len(vignettesInBlock)):
+                #for each block b and vignette v, v in b ==> all other vignettes are not in b
                 s.add(Implies(vignettesInBlock[i], Not(Or(Or(vignettesInBlock[:i]), Or(vignettesInBlock[i+1:])))))
 
         #at most one diddy per block
@@ -265,51 +271,82 @@ class ShowOrderer:
             for secondSketch in vignettesAndDiddies[i+1:]:
                 s.add(Not(self._adjacent(firstSketch, secondSketch)))
 
-
         #Prefer no large or small sketches adjacent to one another
+        if requireNoAdjacentBigs:
+            def addBigConstraint(s1, s2):
+                s.add(Not(self._adjacent(s1, s2)))
+        else:
+            def addBigConstraint(s1, s2):
+                s.add_soft(Not(self._adjacent(s1, s2)), weight = 2)
         for i, firstSketch in enumerate(largeSketches):
             for secondSketch in largeSketches[i+1:]:
-                s.add_soft(Not(self._adjacent(firstSketch, secondSketch)), weight = 2)
+                addBigConstraint(firstSketch, secondSketch)
+
+        if requireNoAdjacentSmalls:
+            def addSmallConstraint(s1, s2):
+                s.add(Not(self._adjacent(s1, s2)))
+        else:
+            def addSmallConstraint(s1, s2):
+                s.add_soft(Not(self._adjacent(s1, s2)), weight = 2)
         for i, firstSketch in enumerate(smallSketches):
             for secondSketch in smallSketches[i+1:]:
-                s.add_soft(Not(self._adjacent(firstSketch, secondSketch)), weight = 2)
-
+                addSmallConstraint(firstSketch, secondSketch)
+                
         #don't place specific sketches next to one another
-        for (s1, s2) in nonAdjacentSketches:
-            if (isinstance(s1, Vignettes) and isinstance(s2, Vignettes)) or isinstance(s1, Diddy) and isinstance(s2, Diddy):
-                #already handled this case
-                continue
-            elif isinstance(s1, Vignettes):
-                var2 = s2.name
-                weight = -2/len(s1.actors)
-                for i in range(len(s1.actors)):
-                    name = s1.name + " " + str(i + 1)
-                    var1 = Int(name)
-                    s.add_soft(self._adjacent(var1, var2), weight = weight)
-            elif isinstance(s2, Vignettes):
-                var1 = s1.name
-                weight = -2/len(s2.actors)
-                for i in range(len(s2.actors)):
-                    name = s2.name + " " + str(i + 1)
-                    var1 = Int(name)
-                    s.add_soft(self._adjacent(var1, var2), weight = weight)
-            else:
-                s.add_soft(self._adjacent(Int(s1.name), Int(s2.name)), weight = -2)
+        if not (nonAdjacentSketches is None):
+            for (s1, s2) in nonAdjacentSketches:
+                if (isinstance(s1, Vignettes) and isinstance(s2, Vignettes)) or isinstance(s1, Diddy) and isinstance(s2, Diddy):
+                    #already handled this case
+                    continue
+                elif isinstance(s1, Vignettes):
+                    var2 = s2.name
+                    for i in range(len(s1.actors)):
+                        name = s1.name + " " + str(i + 1)
+                        var1 = Int(name)
+                        s.add(Not(self._adjacent(var1, var2)))
+                elif isinstance(s2, Vignettes):
+                    #similar as above case but rewriting code for clarity
+                    var1 = s1.name
+                    for i in range(len(s2.actors)):
+                        name = s2.name + " " + str(i + 1)
+                        var1 = Int(name)
+                        s.add(Not(self._adjacent(var1, var2)))
+                else:
+                    s.add(Not(self._adjacent(Int(s1.name), Int(s2.name))))
 
         #place specific sketches first or last
-        for sketch in desiredFirstSketches:
-            s.add_soft(Int(sketch.name) == 1)
-        for sketch in desiredLastSketches:
-            s.add_soft(Int(sketch.name) == n_total, weight = 3)
+        if not(desiredFirstSketches is None):
+            firstSketchConstraints = []
+            for sketch in desiredFirstSketches:
+                firstSketchConstraints.append(Int(sketch.name) == 1)
+            s.add(Or(firstSketchConstraints))
 
-        print("searching.....")
+        if not(desiredLastSketches is None):
+            lastSketchConstraints = []
+            for sketch in desiredLastSketches:
+                lastSketchConstraints.append(Int(sketch.name) == n_total)
+            s.add(Or(lastSketchConstraints))
+
+        #Place specific sketches at start of blocks
+        if not(blockStartingSketches is None):
+            for blockStartingSketch in blockStartingSketches:
+                contraints = [Int(blockStartingSketch.name) == 1]
+                for blockVar in blockVars:
+                    constraints.append(Int(blockStartingSketch.name) == blockVar + 1)
+                s.add(Or(constraints))
+
+        print("Searching for show order...")
         model = s.check()
-        print("done")
         if model == unsat:
-            raise Exception("Could not find a show order that satisfies all hard constraints. Try increasing max quick changes per actor.")
+            raise Exception("There are no show orders that satisfy all hard constraints. Try loosening hard constraints.")
         return s.model()
 
     def print_order(self, model, sketchesToActors):
+        if len(model) == 0:
+            print("Could not find a show order that satisfies all hard constraints within the time allotted. Try loosening hard constraints or increasing time limit.")
+            return
+            
+        print("Done.\n")
         numsToSketches = {}
         for var in model:
             numsToSketches[model[var].as_long()] = var
@@ -324,9 +361,10 @@ class ShowOrderer:
                     print(actor.name, end = " ")
                 print("")
 
-
-def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches = [], desiredLastSketches = [], 
-           nonAdjacentSketches = [], blockStartingSketches = [], timeout = 60):
+def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches = None, desiredLastSketches = None, 
+          nonAdjacentSketches = None, blockStartingSketches = None, requireNoAdjacentSmalls = False, requireNoAdjacentBigs = False, 
+          timeout = 60):
+    print("Checking inputs...")
     orderer = ShowOrderer(sketches)
 
     #input checking: (sketches parameter is already checked by init of ShowOrderer class)
@@ -341,30 +379,38 @@ def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches 
 
     #create a function that can check desiredFirstSketches, desiredLastSketches, and blockStartingSketches at once
     def checkList(listOfSketches, parameterName):
-        if not isinstance(listOfSketches, list):
-            raise TypeError(parameterName + " must be a list of sketches")
-        for sketch in listOfSketches:
-            if not isinstance(sketch, Sketch):
-                raise TypeError(parameterName + " must be a list of sketches")
-            if not (sketch in sketches):
-                raise ValueError("Every sketch in " + parameterName + " must be in the list of sketches you provided.")
+        if not (listOfSketches is None):
+            if not isinstance(listOfSketches, list):
+                raise TypeError(parameterName + " must be a list of sketches (or None)")
+            for sketch in listOfSketches:
+                if not isinstance(sketch, Sketch):
+                    raise TypeError(parameterName + " must be a list of sketches (or None)")
+                if not (sketch in sketches):
+                    raise ValueError("Every sketch in " + parameterName + " must be in the list of sketches you provided.")
 
     checkList(desiredFirstSketches, "desiredFirstSketches")
     checkList(desiredLastSketches, "desiredLastSketches")
     checkList(blockStartingSketches, "blockStartingSketches")
 
     #check nonAdjacentSketches
-    if not isinstance(nonAdjacentSketches, list):
-        raise TypeError("nonAdjacentSketches must be a list of pairs (tuples) of sketches")
-    for pair in nonAdjacentSketches:
-        if not(len(pair) == 2 and isinstance(pair[0], sketch) and isinstance(pair[1], sketch)):
-            raise TypeError("nonAdjacentSketches must be a list of pairs (tuples) of sketches")
-        if not(pair[0] in sketches and pair[1] in sketches):
-            raise ValueError("Every sketch in nonAdjacentSketches must be in the list of sketches you provided.")
+    if not (nonAdjacentSketches is None):
+        if not isinstance(nonAdjacentSketches, list):
+            raise TypeError("nonAdjacentSketches must be a list of pairs (tuples) of sketches (or None)")
+        for pair in nonAdjacentSketches:
+            if not(len(pair) == 2 and isinstance(pair[0], sketch) and isinstance(pair[1], sketch)):
+                raise TypeError("nonAdjacentSketches must be a list of pairs (tuples) of sketches (or None)")
+            if not(pair[0] in sketches and pair[1] in sketches):
+                raise ValueError("Every sketch in nonAdjacentSketches must be in the list of sketches you provided.")
+
+    #check requireNoAdjacentSmalls, requireNoAdjacentBigs
+    if not isinstance(requireNoAdjacentSmalls, bool):
+        raise TypeError("requireNoAdjacentSmalls must be True or False")
+    if not isinstance(requireNoAdjacentBigs, bool):
+        raise TypeError("requireNoAdjacentBigs must be True or False")
 
     #create order
     model = orderer.orderShow(numBlocks, maxChangesPerActor, desiredFirstSketches, desiredLastSketches, nonAdjacentSketches, 
-                              blockStartingSketches, timeout * 1000)
+                              blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, timeout * 1000)
 
     #print order
     names = {}
@@ -376,8 +422,7 @@ def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches 
     
     orderer.print_order(model, names)
     
-
-#------------------------------EXAMPLE: FALL 2024 SHOW------------------------------#
+#------------------------------EXAMPLE: FALL 2024 SHOW------------------------------
 scott = Actor("Scott")
 vincent = Actor("Vincent")
 jesse = Actor("Jesse")
@@ -408,4 +453,4 @@ firemen = Sketch("Firemen", [jesse, mira, vincent, scott, john])
 sketches = [bullies, doordash, call_me, chiv, annapolis, rollcall, cavemen, funeral, fnaf, greats, crossword, incognito, charlie, giftshop,
            tv, firemen]
 
-order(sketches, maxChangesPerActor = 1, desiredLastSketches = [rollcall], timeout = 120)
+order(sketches, maxChangesPerActor = 1, desiredLastSketches = [rollcall], timeout = 60)
