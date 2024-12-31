@@ -19,6 +19,7 @@ This model is designed to guarnatee the following:
 * Certain sketches are placed at the start of blocks when this is specifically requested
 * Certain pairs of sketches are not placed adjacent to one another when this is specifically requested
 * Certain sketches are placed first or last overall when this is specifically requested
+* Certain sketches are not placed in the first block when this is specifically requested
 * No actor has more quick changes than the number allowed (given as input to model)
   
 Simultaneously, the model will optimize for the following:
@@ -55,10 +56,13 @@ The driver function, ```order```, takes a number of parameters:
 * ```blockStartingSketches``` is a list of sketches or ```None```. If a list is provided, the model will ensure every sketch in the list appears at the start of a block. Default: ```None```
 * ```requireNoAdjacentSmalls``` is either ```True``` or ```False```. If ```True```, the model will ensure that no sketches with <= 2 actors end up adjacent to one another. If false, it will simply optimize for this, as described above. Default: ```False```
 * ```requireNoAdjacentBigs``` is similar to the above but for sketches with >= 5 actors. Default: ```False```
+* ```notInFirstBlock``` is either a list of sketches or ```None```. If a list is provided, the model will ensure every sketch in the list does not appear in the first block of the show (assuming ```numBlocks``` is greater than 1).
 * ```timeout``` is the number of seconds the model should run for (see below). Default: ```60```
   
 ## A Note on Efficiency and Running Time
 This program is built using the [Z3 optimizer](https://ericpony.github.io/z3py-tutorial/guide-examples.htm). This optimizer behaves much better with hard requirements than soft constraints. Namely, it can rather quickly find *a* show order that satisfies all hard requirements but, if left to its own devices, will spend a very long time optimizing for the soft constraints (few quick changes, few adjacent sketches with >= 5 or <= 2 actors). The ```timeout``` parameter is necessary so that after a certain amount of time, the orderer can stop running and return the best order it has found so far. If it has not had enough time to find *any* show order that satisfies all hard requirements, the program will print a message saying so. If no show order exists that satisfies all hard requirements, with enough time, the program will be able to prove this is the case and raise an ```Exception```. Since the model behaves better with hard constraints than soft ones, the best way to use it is probably to impose rather strict requirements (e.g. ```maxChangesPerActor = 1```).
+
+Because this program uses Z3, you may have to run ```pip install z3-solver``` the first time you use it to download the Z3 optimizer.
 
 ## Full Example: Fall 2024 Show
 ```python
