@@ -56,7 +56,7 @@ The driver function, ```order```, takes a number of parameters:
 * ```blockStartingSketches``` is a list of sketches or ```None```. If a list is provided, the model will ensure every sketch in the list appears at the start of a block. Default: ```None```
 * ```requireNoAdjacentSmalls``` is either ```True``` or ```False```. If ```True```, the model will ensure that no sketches with <= 2 actors end up adjacent to one another. If false, it will simply optimize for this, as described above. Default: ```False```
 * ```requireNoAdjacentBigs``` is similar to the above but for sketches with >= 5 actors. Default: ```False```
-* ```notInFirstBlock``` is either a list of sketches or ```None```. If a list is provided, the model will ensure every sketch in the list does not appear in the first block of the show (assuming ```numBlocks``` is greater than 1).
+* ```notInFirstBlock``` is either a list of sketches or ```None```. If a list is provided, the model will ensure every sketch in the list does not appear in the first block of the show (assuming ```numBlocks``` is greater than 1). Default: ```None```.
 * ```timeout``` is the number of seconds the model should run for (see below). Default: ```60```
   
 ## A Note on Efficiency and Running Time
