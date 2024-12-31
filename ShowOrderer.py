@@ -337,7 +337,7 @@ class ShowOrderer:
                 if isinstance(blockStartingSketch, Vignettes):
                     #do they want all vignettes at start of the block? Just one in particular?
                     raise Exception("Putting vignettes in blockStartingSketches is not supported.") 
-                contraints = [Int(blockStartingSketch.name) == 1]
+                constraints = [Int(blockStartingSketch.name) == 1]
                 for blockVar in blockVars:
                     constraints.append(Int(blockStartingSketch.name) == blockVar + 1)
                 s.add(Or(constraints))
