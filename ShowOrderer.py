@@ -145,7 +145,7 @@ class ShowOrderer:
         return Or(And(self._adjacent(x, y), self._adjacent(y, z)), And(self._adjacent(y, x), self._adjacent(x, z)), And(self._adjacent(y, z), self._adjacent(z, x)))
 
     def orderShow(self, numBlocks, maxChangesPerActor, desiredFirstSketches, desiredLastSketches, nonAdjacentSketches, 
-                  blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, timeout):
+                  blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, notInFirstBlock, timeout):
         #most input checking is done by driver function intended to call this one, but we'll take care of this real quick:
         if numBlocks > len(self.sketches):
             raise ValueError("Too many blocks, not enough sketches!")
@@ -335,6 +335,12 @@ class ShowOrderer:
                     constraints.append(Int(blockStartingSketch.name) == blockVar + 1)
                 s.add(Or(constraints))
 
+        #Don't place specific sketches in the first block
+        if not(notInFirstBlock is None):
+            for sketch in notInFirstBlock:
+                if numBlocks > 1:
+                    s.add(blockVars[0] < Int(sketch.name))
+
         print("Searching for show order...")
         model = s.check()
         if model == unsat:
@@ -363,7 +369,7 @@ class ShowOrderer:
 
 def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches = None, desiredLastSketches = None, 
           nonAdjacentSketches = None, blockStartingSketches = None, requireNoAdjacentSmalls = False, requireNoAdjacentBigs = False, 
-          timeout = 60):
+          notInFirstBlock = None, timeout = 60):
     print("Checking inputs...")
     orderer = ShowOrderer(sketches)
 
@@ -391,6 +397,7 @@ def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches 
     checkList(desiredFirstSketches, "desiredFirstSketches")
     checkList(desiredLastSketches, "desiredLastSketches")
     checkList(blockStartingSketches, "blockStartingSketches")
+    checkList(notInFirstBlock, "notInFirstBlock")
 
     #check nonAdjacentSketches
     if not (nonAdjacentSketches is None):
@@ -410,7 +417,7 @@ def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches 
 
     #create order
     model = orderer.orderShow(numBlocks, maxChangesPerActor, desiredFirstSketches, desiredLastSketches, nonAdjacentSketches, 
-                              blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, timeout * 1000)
+                              blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, notInFirstBlock, timeout * 1000)
 
     #print order
     names = {}
