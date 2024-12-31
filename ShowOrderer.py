@@ -208,7 +208,7 @@ class ShowOrderer:
                         largeSketches.append(var)
 
         for i in range(1, numBlocks):
-            var = Int("Block" + str(i))
+            var = Int("Block " + str(i))
             blockVars.append(var)
         
         #every variable must be assigned to a unique and valid position
@@ -318,18 +318,25 @@ class ShowOrderer:
         if not(desiredFirstSketches is None):
             firstSketchConstraints = []
             for sketch in desiredFirstSketches:
+                if isinstance(sketch, Diddy) or isinstance(sketch, Vignettes):
+                    raise Exception("This model is designed to not have diddies or vignettes as the first overall sketch.")
                 firstSketchConstraints.append(Int(sketch.name) == 1)
             s.add(Or(firstSketchConstraints))
 
         if not(desiredLastSketches is None):
             lastSketchConstraints = []
             for sketch in desiredLastSketches:
+                if isinstance(sketch, Diddy) or isinstance(sketch, Vignettes):
+                    raise Exception("This model is designed to not have diddies or vignettes as the last overall sketch.")
                 lastSketchConstraints.append(Int(sketch.name) == n_total)
             s.add(Or(lastSketchConstraints))
 
         #Place specific sketches at start of blocks
         if not(blockStartingSketches is None):
             for blockStartingSketch in blockStartingSketches:
+                if isinstance(blockStartingSketch, Vignettes):
+                    #do they want all vignettes at start of the block? Just one in particular?
+                    raise Exception("Putting vignettes in blockStartingSketches is not supported.") 
                 contraints = [Int(blockStartingSketch.name) == 1]
                 for blockVar in blockVars:
                     constraints.append(Int(blockStartingSketch.name) == blockVar + 1)
@@ -339,7 +346,10 @@ class ShowOrderer:
         if not(notInFirstBlock is None):
             for sketch in notInFirstBlock:
                 if numBlocks > 1:
-                    s.add(blockVars[0] < Int(sketch.name))
+                    if isinstance(sketch, Vignettes):
+                        s.add(blockVars[0] < Int(sketch.name + " 1"))
+                    else:
+                        s.add(blockVars[0] < Int(sketch.name))
 
         print("Searching for show order...")
         model = s.check()
