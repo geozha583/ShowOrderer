@@ -145,7 +145,7 @@ class ShowOrderer:
         return Or(And(self._adjacent(x, y), self._adjacent(y, z)), And(self._adjacent(y, x), self._adjacent(x, z)), And(self._adjacent(y, z), self._adjacent(z, x)))
 
     def orderShow(self, numBlocks, maxChangesPerActor, desiredFirstSketches, desiredLastSketches, nonAdjacentSketches, 
-                  blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, notInFirstBlock, timeout):
+                  differentBlockSketches, blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, notInFirstBlock, timeout):
         #most input checking is done by driver function intended to call this one, but we'll take care of this real quick:
         if numBlocks > len(self.sketches):
             raise ValueError("Too many blocks, not enough sketches!")
@@ -314,6 +314,20 @@ class ShowOrderer:
                 else:
                     s.add(Not(self._adjacent(Int(s1.name), Int(s2.name))))
 
+        #place certain sketches in different blocks from one another
+        if not (differentBlockSketches is None):
+            for (s1, s2) in differentBlockSketches:
+                if (isinstance(s1, Vignettes) or isinstance(s2, Vignettes)):
+                    raise Exception("Putting vignettes in differentBlockSketches is not supported.")
+                else:
+                    separators = []
+                    s1var = Int(s1.name)
+                    s2var = Int(s2.name)
+                    for var in blockVars:
+                        separators.append(Or(And(s1var > var, s2var < var), And(s1var < var, s2var > var)))
+
+                    s.add(Or(separators))
+
         #place specific sketches first or last
         if not(desiredFirstSketches is None):
             firstSketchConstraints = []
@@ -378,8 +392,8 @@ class ShowOrderer:
                 print("")
 
 def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches = None, desiredLastSketches = None, 
-          nonAdjacentSketches = None, blockStartingSketches = None, requireNoAdjacentSmalls = False, requireNoAdjacentBigs = False, 
-          notInFirstBlock = None, timeout = 60):
+          nonAdjacentSketches = None, differentBlockSketches = None, blockStartingSketches = None, requireNoAdjacentSmalls = False, 
+          requireNoAdjacentBigs = False, notInFirstBlock = None, timeout = 60):
     print("Checking inputs...")
     orderer = ShowOrderer(sketches)
 
@@ -409,16 +423,21 @@ def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches 
     checkList(blockStartingSketches, "blockStartingSketches")
     checkList(notInFirstBlock, "notInFirstBlock")
 
-    #check nonAdjacentSketches
-    if not (nonAdjacentSketches is None):
-        if not isinstance(nonAdjacentSketches, list):
-            raise TypeError("nonAdjacentSketches must be a list of pairs (tuples) of sketches (or None)")
-        for pair in nonAdjacentSketches:
-            if not(len(pair) == 2 and isinstance(pair[0], sketch) and isinstance(pair[1], sketch)):
-                raise TypeError("nonAdjacentSketches must be a list of pairs (tuples) of sketches (or None)")
-            if not(pair[0] in sketches and pair[1] in sketches):
-                raise ValueError("Every sketch in nonAdjacentSketches must be in the list of sketches you provided.")
+    #create a function that can check nonAdjacentSketches and differentBlockSketches at once
 
+    def checkListOfTuples(listOfTuples, parameterName):
+        if not (listOfTuples is None):
+            if not isinstance(listOfTuples, list):
+                raise TypeError(parameterName + " must be a list of pairs (tuples) of sketches (or None)")
+            for pair in listOfTuples:
+                if not(len(pair) == 2 and isinstance(pair[0], Sketch) and isinstance(pair[1], Sketch)):
+                    raise TypeError(parameterName + " must be a list of pairs (tuples) of sketches (or None)")
+                if not(pair[0] in sketches and pair[1] in sketches):
+                    raise ValueError("Every sketch in " + parameterName + " must be in the list of sketches you provided.")
+
+    checkListOfTuples(nonAdjacentSketches, "nonAdjacentSketches")
+    checkListOfTuples(differentBlockSketches, "differentBlockSketches")
+    
     #check requireNoAdjacentSmalls, requireNoAdjacentBigs
     if not isinstance(requireNoAdjacentSmalls, bool):
         raise TypeError("requireNoAdjacentSmalls must be True or False")
@@ -427,7 +446,8 @@ def order(sketches, numBlocks = 4, maxChangesPerActor = 3, desiredFirstSketches 
 
     #create order
     model = orderer.orderShow(numBlocks, maxChangesPerActor, desiredFirstSketches, desiredLastSketches, nonAdjacentSketches, 
-                              blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, notInFirstBlock, timeout * 1000)
+                              differentBlockSketches, blockStartingSketches, requireNoAdjacentSmalls, requireNoAdjacentBigs, notInFirstBlock, 
+                              timeout * 1000)
 
     #print order
     names = {}
