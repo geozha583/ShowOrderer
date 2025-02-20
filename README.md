@@ -18,6 +18,7 @@ This model is designed to guarnatee the following:
 * Vignettes and diddies are never adjacent to other vignettes or diddies
 * Certain sketches are placed at the start of blocks when this is specifically requested
 * Certain pairs of sketches are not placed adjacent to one another when this is specifically requested
+* Certain pairs of sketches are placed in different blocks from one anotehr when this is specifically requested
 * Certain sketches are placed first or last overall when this is specifically requested
 * Certain sketches are not placed in the first block when this is specifically requested
 * No actor has more quick changes than the number allowed (given as input to model)
@@ -53,6 +54,7 @@ The driver function, ```order```, takes a number of parameters:
 * ```nonAdjacentSketches``` is a list of pairs of sketches or ```None```. If a list is provided, the model will ensure each pair ends up separated in the final order. Default: ```None```
 
   Usage: ```order(..., nonAdjacentSketches = [(sketch1, sketch2), (sketch1, sketch3)], ...)``` will ensure ```sketch1``` will not end up adjacent to either ```sketch2``` or ```sketch3```.
+* ```differentBlockSketches``` is similar to above, but the model will ensure each pair of sketches provided ends up in different blocks from one another. Default: ```None```
 * ```blockStartingSketches``` is a list of sketches or ```None```. If a list is provided, the model will ensure every sketch in the list appears at the start of a block. Default: ```None```
 * ```requireNoAdjacentSmalls``` is either ```True``` or ```False```. If ```True```, the model will ensure that no sketches with <= 2 actors end up adjacent to one another. If false, it will simply optimize for this, as described above. Default: ```False```
 * ```requireNoAdjacentBigs``` is similar to the above but for sketches with >= 5 actors. Default: ```False```
